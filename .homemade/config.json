@@ -2,28 +2,24 @@
   "$schema": "https://homemade.dev/schemas/config.json",
   "size": "small",
   "env_schema": [
+    "DATABASE_URL",
+    "NODE_ENV",
+    "HOST",
+    "BETTER_AUTH_URL",
     {
       "key": "BETTER_AUTH_SECRET",
       "generate": true
-    },
-    {
-      "key": "BETTER_AUTH_URL",
-      "default": "${HOMEMADE_URL_3000}"
     }
   ],
   "warmup": [
-    "mise use node@24",
-    "npm i -g node-gyp",
-    "node-gyp install || node-gyp install",
-    "pnpm install --frozen-lockfile",
-    "docker pull postgres:16"
+    "mise exec node@24.22.1 -- npm install --global node-gyp@11.5.0",
+    "mise exec node@24.22.1 -- node-gyp install",
+    "mise exec node@24.22.1 -- corepack pnpm install --frozen-lockfile",
+    "docker pull postgres:16",
+    "docker pull traefik:v3.7.19"
   ],
   "install": [
-    "mise use node@24",
-    "pnpm install --frozen-lockfile",
-    "test -f apps/dokploy/.env || cp apps/dokploy/.env.example apps/dokploy/.env",
-    "docker swarm init --advertise-addr \"$(hostname -I | cut -d' ' -f1)\" || true",
-    "cd apps/dokploy && npx tsx -r dotenv/config -e \"const s=await import('@dokploy/server/setup/setup');const t=await import('@dokploy/server/setup/traefik-setup');await s.initializeNetwork();t.createDefaultTraefikConfig();t.createDefaultServerTraefikConfig();await t.initializeStandaloneTraefik();process.exit(0)\""
+    "mise exec node@24.22.1 -- corepack pnpm install --frozen-lockfile"
   ],
   "services": {
     "db": {
@@ -36,7 +32,7 @@
     },
     "web": {
       "displayName": "Dokploy",
-      "cmd": "pnpm --filter=dokploy run migration:run && pnpm run server:script && exec pnpm run dokploy:dev",
+      "cmd": "pnpm --filter=./apps/dokploy run migration:run && exec pnpm run dokploy:dev",
       "port": 3000,
       "url": true,
       "share": "owner",
@@ -51,10 +47,14 @@
     },
     "apps": {
       "displayName": "Deployed apps (Traefik)",
+      "cmd": "if [ \"$(docker info --format '{{.Swarm.LocalNodeState}}')\" != active ]; then docker swarm init --advertise-addr \"$(hostname -I | cut -d' ' -f1)\"; fi && cd apps/dokploy && pnpm exec tsx -r dotenv/config -e '(async()=>{const s=await import(\"@dokploy/server/setup/setup\");const t=await import(\"@dokploy/server/setup/traefik-setup\");const c=await import(\"@dokploy/server/setup/config-paths\");c.setupDirectories();await s.initializeNetwork();t.createDefaultMiddlewares();t.createDefaultTraefikConfig();await t.initializeStandaloneTraefik();process.exit(0)})().catch(e=>{console.error(e);process.exit(1)})' && exec docker logs --follow dokploy-traefik",
       "port": 80,
       "url": true,
       "share": "owner",
-      "publicHost": true
+      "publicHost": true,
+      "healthcheck": {
+        "path": "/"
+      }
     }
   }
 }
